@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Cloud IDS — Détection d'intrusion</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; }
+    .header { background: #1e293b; padding: 1rem 2rem; border-bottom: 1px solid #334155; display: flex; align-items: center; justify-content: space-between; }
+    .header h1 { font-size: 20px; color: #f1f5f9; }
+    .live { font-size: 12px; background: #064e3b; color: #6ee7b7; padding: 4px 12px; border-radius: 20px; }
+    .container { padding: 2rem; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 2rem; }
+    .stat { background: #1e293b; border-radius: 10px; padding: 1.2rem; border: 1px solid #334155; }
+    .stat-label { font-size: 12px; color: #94a3b8; margin-bottom: 6px; }
+    .stat-value { font-size: 28px; font-weight: bold; }
+    .stat-value.danger { color: #f87171; }
+    .stat-value.success { color: #34d399; }
+    .stat-value.warn { color: #fbbf24; }
+    .stat-value.info { color: #60a5fa; }
+    .buttons { display: flex; gap: 12px; margin-bottom: 2rem; }
+    .btn { padding: 10px 24px; border-radius: 8px; border: none; font-size: 14px; cursor: pointer; font-weight: 500; }
+    .btn-attack { background: #7f1d1d; color: #fca5a5; }
+    .btn-attack:hover { background: #991b1b; }
+    .btn-normal { background: #064e3b; color: #6ee7b7; }
+    .btn-normal:hover { background: #065f46; }
+    .table-wrap { background: #1e293b; border-radius: 10px; border: 1px solid #334155; overflow: hidden; }
+    .table-title { padding: 1rem 1.5rem; font-size: 14px; font-weight: 500; border-bottom: 1px solid #334155; }
+    table { width: 100%; border-collapse: collapse; }
+    th { padding: 10px 16px; text-align: left; font-size: 12px; color: #94a3b8; background: #0f172a; }
+    td { padding: 12px 16px; font-size: 13px; border-top: 1px solid #1e293b; }
+    .pill { padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: bold; }
+    .pill-suspect { background: #7f1d1d; color: #fca5a5; }
+    .pill-normal { background: #064e3b; color: #6ee7b7; }
+    .score-bar { height: 8px; background: #334155; border-radius: 4px; overflow: hidden; }
+    .score-fill { height: 100%; border-radius: 4px; }
+    .score-high { background: #ef4444; }
+    .score-low { background: #10b981; }
+    .alert-box { background: #7f1d1d; border: 1px solid #ef4444; border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; display: none; }
+    .alert-box.show { display: block; }
+    .alert-title { color: #fca5a5; font-weight: bold; margin-bottom: 4px; }
+    .alert-msg { color: #fecaca; font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🛡️ Cloud IDS — Détection d'intrusion avec IA</h1>
+  <span class="live">● LocalStack actif</span>
+</div>
+
+<div class="container">
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-label">Accès analysés</div>
+      <div class="stat-value info" id="total">0</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Intrusions détectées</div>
+      <div class="stat-value danger" id="suspects">0</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Accès normaux</div>
+      <div class="stat-value success" id="normaux">0</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Score IA max</div>
+      <div class="stat-value warn" id="scoremax">0.00</div>
+    </div>
+  </div>
+
+  <div id="alert-box" class="alert-box">
+    <div class="alert-title">⚠️ INTRUSION DÉTECTÉE — Alerte SNS envoyée !</div>
+    <div class="alert-msg" id="alert-msg"></div>
+  </div>
+
+  <div class="buttons">
+    <button class="btn btn-attack" onclick="simuler('suspect')">⚠️ Simuler une attaque</button>
+    <button class="btn btn-normal" onclick="simuler('normal')">✅ Simuler accès normal</button>
+  </div>
+
+  <div class="table-wrap">
+    <div class="table-title">Historique des accès analysés</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>IP source</th>
+          <th>Méthode</th>
+          <th>Pays</th>
+          <th>Requêtes/min</th>
+          <th>Score IA</th>
+          <th>Statut</th>
+        </tr>
+      </thead>
+      <tbody id="log-body">
+        <tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:2rem">
+          Clique sur un bouton pour simuler un accès
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+let logs=[], total=0, suspects=0, normaux=0, scoremax=0;
+
+const attacks = [
+  {ip:'185.220.101.45', methode:'DELETE', pays:'RU', nb_req:847, score:0.94},
+  {ip:'45.142.212.100', methode:'DELETE', pays:'CN', nb_req:1200, score:0.97},
+  {ip:'92.118.160.22',  methode:'GET',    pays:'KP', nb_req:650,  score:0.88},
+  {ip:'198.54.117.197', methode:'DELETE', pays:'IR', nb_req:990,  score:0.91},
+];
+const normals = [
+  {ip:'192.168.1.1',   methode:'GET', pays:'MA', nb_req:3,  score:0.02},
+  {ip:'10.0.0.5',      methode:'GET', pays:'FR', nb_req:8,  score:0.05},
+  {ip:'172.16.0.10',   methode:'PUT', pays:'MA', nb_req:2,  score:0.03},
+  {ip:'10.0.0.25',     methode:'GET', pays:'US', nb_req:12, score:0.04},
+];
+
+function now() {
+  return new Date().toLocaleTimeString('fr-FR');
+}
+
+function simuler(type) {
+  const pool = type === 'suspect' ? attacks : normals;
+  const d = pool[Math.floor(Math.random() * pool.length)];
+  const est_suspect = d.score >= 0.7;
+
+  total++;
+  if (est_suspect) suspects++; else normaux++;
+  if (d.score > scoremax) scoremax = d.score;
+
+  document.getElementById('total').textContent = total;
+  document.getElementById('suspects').textContent = suspects;
+  document.getElementById('normaux').textContent = normaux;
+  document.getElementById('scoremax').textContent = scoremax.toFixed(2);
+
+  const alertBox = document.getElementById('alert-box');
+  if (est_suspect) {
+    alertBox.classList.add('show');
+    document.getElementById('alert-msg').textContent =
+      `IP: ${d.ip} | Pays: ${d.pays} | Score: ${d.score} | Méthode: ${d.methode} | ${d.nb_req} requêtes/min`;
+  } else {
+    alertBox.classList.remove('show');
+  }
+
+  logs.unshift({ ts: now(), ...d, statut: est_suspect ? 'SUSPECT' : 'NORMAL' });
+
+  document.getElementById('log-body').innerHTML = logs.map(r => `
+    <tr>
+      <td style="color:#94a3b8">${r.ts}</td>
+      <td style="font-family:monospace">${r.ip}</td>
+      <td>${r.methode}</td>
+      <td>${r.pays}</td>
+      <td>${r.nb_req}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="score-bar" style="width:80px">
+            <div class="score-fill ${r.score>=0.7?'score-high':'score-low'}"
+                 style="width:${Math.round(r.score*100)}%"></div>
+          </div>
+          <span>${r.score.toFixed(2)}</span>
+        </div>
+      </td>
+      <td><span class="pill ${r.statut==='SUSPECT'?'pill-suspect':'pill-normal'}">${r.statut}</span></td>
+    </tr>
+  `).join('');
+}
+</script>
+</body>
+</html>
